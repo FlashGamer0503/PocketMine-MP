@@ -69,6 +69,7 @@ use pocketmine\metadata\Metadatable;
 use pocketmine\metadata\MetadataValue;
 use pocketmine\nbt\tag\ListTag;
 use pocketmine\nbt\tag\StringTag;
+use pocketmine\network\mcpe\protocol\AddEntityPacket;
 use pocketmine\network\mcpe\protocol\BatchPacket;
 use pocketmine\network\mcpe\protocol\DataPacket;
 use pocketmine\network\mcpe\protocol\LevelEventPacket;
@@ -502,16 +503,16 @@ class Level implements ChunkManager, Metadatable{
 	 *
 	 * @param Vector3 $pos
 	 * @param int     $soundId
-	 * @param int     $pitch
 	 * @param int     $extraData
+	 * @param int     $entityTypeId
 	 * @param bool    $isBabyMob
 	 * @param bool    $disableRelativeVolume If true, all players receiving this sound-event will hear the sound at full volume regardless of distance
 	 */
-	public function broadcastLevelSoundEvent(Vector3 $pos, int $soundId, int $pitch = 1, int $extraData = -1, bool $isBabyMob = false, bool $disableRelativeVolume = false){
+	public function broadcastLevelSoundEvent(Vector3 $pos, int $soundId, int $extraData = -1, int $entityTypeId = -1, bool $isBabyMob = false, bool $disableRelativeVolume = false){
 		$pk = new LevelSoundEventPacket();
 		$pk->sound = $soundId;
-		$pk->pitch = $pitch;
 		$pk->extraData = $extraData;
+		$pk->entityType = AddEntityPacket::LEGACY_ID_MAP_BC[$entityTypeId] ?? ":";
 		$pk->isBabyMob = $isBabyMob;
 		$pk->disableRelativeVolume = $disableRelativeVolume;
 		$pk->position = $pos->asVector3();
@@ -1937,7 +1938,7 @@ class Level implements ChunkManager, Metadatable{
 		}
 
 		if($playSound){
-			$this->broadcastLevelSoundEvent($hand, LevelSoundEventPacket::SOUND_PLACE, 1, $hand->getRuntimeId());
+			$this->broadcastLevelSoundEvent($hand, LevelSoundEventPacket::SOUND_PLACE, $hand->getRuntimeId());
 		}
 
 		$item->pop();
@@ -2440,7 +2441,7 @@ class Level implements ChunkManager, Metadatable{
 
 		$chunkHash = Level::chunkHash($chunkX, $chunkZ);
 		$oldChunk = $this->getChunk($chunkX, $chunkZ, false);
-		if($oldChunk !== null){
+		if($oldChunk !== null and $oldChunk !== $chunk){
 			if($unload){
 				$this->unloadChunk($chunkX, $chunkZ, false, false);
 			}else{
@@ -2462,6 +2463,10 @@ class Level implements ChunkManager, Metadatable{
 		unset($this->blockCache[$chunkHash]);
 		unset($this->chunkCache[$chunkHash]);
 		unset($this->changedBlocks[$chunkHash]);
+		if(isset($this->chunkSendTasks[$chunkHash])){ //invalidate pending caches
+			$this->chunkSendTasks[$chunkHash]->cancelRun();
+			unset($this->chunkSendTasks[$chunkHash]);
+		}
 		$chunk->setChanged();
 
 		if(!$this->isChunkInUse($chunkX, $chunkZ)){

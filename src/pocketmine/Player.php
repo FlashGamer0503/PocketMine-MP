@@ -101,6 +101,7 @@ use pocketmine\network\mcpe\PlayerNetworkSessionAdapter;
 use pocketmine\network\mcpe\protocol\AdventureSettingsPacket;
 use pocketmine\network\mcpe\protocol\AnimatePacket;
 use pocketmine\network\mcpe\protocol\AvailableCommandsPacket;
+use pocketmine\network\mcpe\protocol\AvailableEntityIdentifiersPacket;
 use pocketmine\network\mcpe\protocol\BatchPacket;
 use pocketmine\network\mcpe\protocol\BlockEntityDataPacket;
 use pocketmine\network\mcpe\protocol\BlockPickRequestPacket;
@@ -120,6 +121,7 @@ use pocketmine\network\mcpe\protocol\MobEffectPacket;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\ModalFormRequestPacket;
 use pocketmine\network\mcpe\protocol\MovePlayerPacket;
+use pocketmine\network\mcpe\protocol\NetworkChunkPublisherUpdatePacket;
 use pocketmine\network\mcpe\protocol\PlayerActionPacket;
 use pocketmine\network\mcpe\protocol\PlayStatusPacket;
 use pocketmine\network\mcpe\protocol\ProtocolInfo;
@@ -1149,6 +1151,14 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		}
 
 		$this->loadQueue = $newOrder;
+		if(!empty($this->loadQueue) or !empty($unloadChunks)){
+			$pk = new NetworkChunkPublisherUpdatePacket();
+			$pk->x = $this->getFloorX();
+			$pk->y = $this->getFloorY();
+			$pk->z = $this->getFloorZ();
+			$pk->radius = $this->viewDistance * 16; //blocks, not chunks >.>
+			$this->dataPacket($pk);
+		}
 
 		Timings::$playerChunkOrderTimer->stopTiming();
 	}
@@ -2087,6 +2097,8 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		$pk->worldName = $this->server->getMotd();
 		$this->dataPacket($pk);
 
+		$this->sendDataPacket(new AvailableEntityIdentifiersPacket());
+
 		$this->level->sendTime($this);
 
 		$this->sendAttributes(true);
@@ -2617,6 +2629,13 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 
 	public function handleInteract(InteractPacket $packet) : bool{
 		if(!$this->spawned or !$this->isAlive()){
+			return true;
+		}
+		if($packet->action === InteractPacket::ACTION_MOUSEOVER and $packet->target === 0){
+			//TODO HACK: silence useless spam (MCPE 1.8)
+			//this packet is EXPECTED to only be sent when interacting with an entity, but due to some messy Mojang
+			//hacks, it also sends it when changing the held item now, which causes us to think the inventory was closed
+			//when it wasn't.
 			return true;
 		}
 
